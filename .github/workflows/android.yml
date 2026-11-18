@@ -1,15 +1,52 @@
-name: AasPass validation
+name: AasPass Android + Backend CI
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
 jobs:
-  validation:
+  backend-static:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Check project source presence
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JS syntax and backend helper tests
         run: |
-          test -f settings.gradle.kts
-          test -f app/build.gradle.kts
+          npm --prefix firebase/functions run lint
+          npm --prefix firebase/functions test
+      - name: Source manifest and asset checks
+        run: python3 qa/verify_project.py
+
+  android-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Install Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      # Absence of google-services.json intentionally compiles a setup-required screen.
+      # Integration tests MUST still run with the real secret via secure CI setup.
+      - name: Compile app + unit tests
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: AasPass-debug-unsigned-alpha
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 3

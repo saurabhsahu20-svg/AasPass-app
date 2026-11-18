@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.AasPass" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#071710</item>
+        <item name="android:navigationBarColor">#071710</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

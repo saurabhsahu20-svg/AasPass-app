@@ -1,0 +1,17 @@
+{
+  "name": "aaspass-functions",
+  "private": true,
+  "version": "0.8.0",
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "scripts": {
+    "lint": "node --check index.js && node --check message-utils.js && node --check groups.js && node --check group-utils.js && node --check media.js && node --check media-utils.js && node --check calls.js && node --check call-utils.js && node --check account.js && node --check account-utils.js && node --check push-utils.js && node --check push-fanout.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.3.2"
+  }
+}

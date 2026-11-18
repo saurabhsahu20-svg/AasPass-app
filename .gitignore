@@ -1,0 +1,26 @@
+.gradle/
+.idea/
+**/build/
+local.properties
+*.iml
+app/google-services.json
+*.jks
+*.keystore
+.env
+firebase/.env*
+
+# Never publish downloaded dependencies, build products or local environments.
+node_modules/
+.firebase/
+*.apk
+*.aab
+*.zip
+*.log
+*.hprof
+*.pem
+*.p12
+*.p8
+*.pfx
+service-account*.json
+firebase-adminsdk*.json
+**/.env.local
