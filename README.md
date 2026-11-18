@@ -1,4 +1,4 @@
-# AasPass — Premium Messaging & Calling (Android Studio)
+# MsgU — Smooth Messaging Preview (Android Studio)
 
 **Version: 0.8.0-alpha | Source project, NOT a verified release APK.**
 

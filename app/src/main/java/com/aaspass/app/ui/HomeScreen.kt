@@ -32,6 +32,7 @@ import com.aaspass.app.data.Conversation
 import com.aaspass.app.data.TimelineMerge
 import com.aaspass.app.data.UserProfile
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -58,9 +59,9 @@ fun HomeScreen(
     var listError by remember { mutableStateOf<String?>(null) }
     var listLoaded by remember(profile.id) { mutableStateOf(false) }
     val chats by remember(conversationFlow) {
-        conversationFlow
+        conversationFlow.conflate()
             .onEach { listLoaded = true; listError = null }
-            .catch { listLoaded = true; listError = it.localizedMessage ?: "Unable to load chats"; emit(emptyList()) }
+            .catch { listLoaded = true; listError = it.localizedMessage ?: "Unable to load chats" }
     }.collectAsState(initial = emptyList())
     var olderChats by remember(profile.id) { mutableStateOf<List<Conversation>>(emptyList()) }
     var olderBusy by remember(profile.id) { mutableStateOf(false) }
@@ -193,7 +194,7 @@ private fun ChatList(
     onClick: (String) -> Unit, onLoadMore: () -> Unit
 ) {
     val filtered = conversations.filter { it.peerName(uid).contains(search, ignoreCase = true) }
-    if (error != null) {
+    if (error != null && filtered.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(24.dp), Alignment.Center) {
             Text(error, color = MaterialTheme.colorScheme.error)
         }
@@ -211,6 +212,10 @@ private fun ChatList(
         }
     } else {
         LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+            if (error != null) item(key = "chat_sync_error") {
+                Text("Chat sync issue: $error", Modifier.padding(14.dp),
+                    color = MaterialTheme.colorScheme.error)
+            }
             items(filtered, key = { it.id }) { conversation ->
                 Row(
                     Modifier.fillMaxWidth().clickable { onClick(conversation.id) }

@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -41,6 +42,7 @@ import com.aaspass.app.data.MediaRepository
 import com.aaspass.app.data.PrivacyPreferences
 import com.aaspass.app.data.ReadReceiptEligibility
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -121,10 +123,20 @@ fun ChatScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             val activeChat = chat
+            if (error != null && activeChat != null) {
+                Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(error.orEmpty(), Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer)
+                        TextButton(onClick = { error = null }) { Text("Dismiss") }
+                    }
+                }
+            }
             when {
-                error != null -> CenterText(error.orEmpty())
                 !loaded -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                activeChat == null -> CenterText("This conversation is unavailable.")
+                activeChat == null -> CenterText(error ?: "This conversation is unavailable.")
                 blocked -> CenterText("You have blocked this user. New messages are disabled.")
                 activeChat.status == "rejected" -> CenterText("This message request was declined.")
                 activeChat.status == "requested" -> {
@@ -203,9 +215,10 @@ private fun MessageThread(repository: AasPassRepository, uid: String, chatId: St
         }
     }
     val shareReadReceipts = remember(uid) { PrivacyPreferences.shareReadReceipts(context, uid) }
-    val messageFlow = remember(chatId) { repository.messages(chatId) }
+    // Realtime snapshots are complete lists; keep only the freshest update during bursts.
+    val messageFlow = remember(chatId) { repository.messages(chatId).conflate() }
     val liveMessages by remember(messageFlow) {
-        messageFlow.catch { error = it.localizedMessage ?: "Could not load messages"; emit(emptyList()) }
+        messageFlow.catch { error = it.localizedMessage ?: "Could not load messages" }
     }.collectAsState(initial = emptyList())
     var olderMessages by remember(chatId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var olderBusy by remember(chatId) { mutableStateOf(false) }
@@ -223,6 +236,8 @@ private fun MessageThread(repository: AasPassRepository, uid: String, chatId: St
     }.collectAsState(initial = null)
     var input by rememberSaveable(chatId) { mutableStateOf("") }
     var replyTo by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
+    // Keep each failed outgoing draft available for explicit restoration, not an automatic resend.
+    val failedSends = remember(chatId) { mutableStateListOf<Pair<String, ChatMessage?>>() }
     var actionsFor by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
     var editFor by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
     var deletionFor by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
@@ -263,10 +278,17 @@ private fun MessageThread(repository: AasPassRepository, uid: String, chatId: St
         val visible = scrollState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
         val totalBefore = scrollState.layoutInfo.totalItemsCount
         val wasNearBottom = totalBefore == 0 || visible >= totalBefore - 3
-        if (previousLastMessageId == null || wasNearBottom || last.senderId == uid) {
-            scrollState.animateScrollToItem(messages.lastIndex + (if (hasOlder) 1 else 0))
-        }
+        val firstLoad = previousLastMessageId == null
         previousLastMessageId = last.id
+        if (firstLoad || wasNearBottom || last.senderId == uid) {
+            val destination = messages.lastIndex + (if (hasOlder) 1 else 0)
+            // Avoid a long, expensive animation when a chat with many messages first opens.
+            if (firstLoad || destination - visible > 5) {
+                scrollState.scrollToItem(destination)
+            } else {
+                scrollState.animateScrollToItem(destination)
+            }
+        }
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         error?.let { message ->
@@ -337,6 +359,27 @@ private fun MessageThread(repository: AasPassRepository, uid: String, chatId: St
             }
         }
         HorizontalDivider()
+        if (failedSends.isNotEmpty()) {
+            Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(if (failedSends.size == 1) "Message not sent" else "${failedSends.size} messages not sent",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text("Restore your draft to retry when the issue is resolved.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                    TextButton(enabled = input.isBlank(), onClick = {
+                        val failed = failedSends.removeAt(0)
+                        input = failed.first
+                        replyTo = failed.second
+                        error = null
+                    }) { Text("Restore") }
+                }
+            }
+        }
         if (uploading) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
@@ -347,9 +390,13 @@ private fun MessageThread(repository: AasPassRepository, uid: String, chatId: St
                 if (messageText.isEmpty()) return
                 try {
                     // Enqueue into Firestore's offline cache without blocking the composer.
-                    repository.enqueueMessage(chatId, messageText, replyTo?.id.orEmpty()) {
+                    val originalReply = replyTo
+                    repository.enqueueMessage(chatId, messageText, originalReply?.id.orEmpty()) {
+                        // Do not silently lose a message that Firestore rejected.
+                        failedSends.add(messageText to originalReply)
                         error = it
                     }
+                    error = null
                     input = ""
                     replyTo = null
                     // Keep the keyboard open for fast consecutive messages.
@@ -455,9 +502,10 @@ private fun MessageBubble(
     onClick: () -> Unit,
     onAttachment: () -> Unit
 ) {
+    val bubbleMaxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.83f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Column(
-            modifier = Modifier.fillMaxWidth(0.83f)
+            modifier = Modifier.widthIn(max = bubbleMaxWidth)
                 .background(
                     if (mine) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant,
