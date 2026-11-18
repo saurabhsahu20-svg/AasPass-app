@@ -252,7 +252,7 @@ private fun ProfileSetup(gateway: SupabaseGateway, onDone: (ChatProfile) -> Unit
                     onDone(requireNotNull(gateway.myProfile()))
                 } catch (e: Exception) { error = e.localizedMessage }
                 finally { busy = false }
-            } }, Modifier.fillMaxWidth().height(52.dp)) { Text("Start using MsgU") }
+            } }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Start using MsgU") }
         Text("Your username is discoverable by default so friends can send requests. You can change this in Profile.",
             modifier = Modifier.padding(top=15.dp),style=MaterialTheme.typography.bodySmall)
     }
