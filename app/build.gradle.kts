@@ -18,8 +18,8 @@ android {
         applicationId = "com.aaspass.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.9.0-MsgU-Supabase-beta"
+        versionCode = 12
+        versionName = "0.9.1-MsgU-Email-Phone-beta"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {

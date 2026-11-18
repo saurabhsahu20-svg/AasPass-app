@@ -106,6 +106,19 @@ private class MBackend(ctx: Context) {
         saveSession(JSONObject(request("POST", path, body)))
         return authenticated
     }
+    suspend fun sendPhoneCode(number: String) {
+        require(MsgULoginRules.validPhone(number)) { "Enter a phone number with country code, e.g. +919876543210" }
+        // Supabase requires enabled Phone Auth and a configured SMS provider.
+        request("POST", "/auth/v1/otp", JSONObject().put("phone", number).put("create_user", true))
+    }
+    suspend fun verifyPhoneCode(number: String, code: String) {
+        require(MsgULoginRules.validPhone(number)) { "Invalid number" }
+        require(MsgULoginRules.validOtp(code)) { "Enter the 6-digit verification code" }
+        val session = JSONObject(request("POST", "/auth/v1/verify", JSONObject()
+            .put("phone", number).put("token", code).put("type", "sms")))
+        saveSession(session)
+        check(authenticated) { "Verification failed; request a new code" }
+    }
     private suspend fun authenticatedRequest(method: String, path: String, body: JSONObject? = null): String {
         check(authenticated) { "Please sign in" }
         if (System.currentTimeMillis() >= expires - 90000) {
@@ -177,6 +190,7 @@ fun MsgUCloudScreen() {
     var name by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var searchable by remember { mutableStateOf(false) }
+    var mobileLogin by rememberSaveable { mutableStateOf(false) }
     fun runJob(block: suspend () -> Unit) {
         if (busy) return
         busy = true; errorText = ""
@@ -202,7 +216,11 @@ fun MsgUCloudScreen() {
         while (isActive) {
             try {
                 if (chat == null) chats = api.chats()
-                else if (chat?.status == "accepted") messages = api.messages(chat!!.id)
+                else {
+                    val latest = api.chats().firstOrNull { it.id == chat?.id }
+                    if (latest != null && latest.status != chat?.status) chat = latest
+                    if (chat?.status == "accepted") messages = api.messages(chat!!.id)
+                }
             } catch (c: CancellationException) { throw c }
             catch (e: Exception) { errorText = e.message ?: "Sync failed" }
             delay(if (chat == null) 5000L else 2500L)
@@ -247,25 +265,38 @@ fun MsgUCloudScreen() {
             var nickname by rememberSaveable { mutableStateOf("") }
             var signup by rememberSaveable { mutableStateOf(false) }
             Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
-                Text(if (signup) "Create MsgU account" else "Welcome to MsgU",
-                    style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(email, { email = it }, modifier = Modifier.fillMaxWidth(),
-                    singleLine = true, label = { Text("Email") })
-                OutlinedTextField(pass, { pass = it }, modifier = Modifier.fillMaxWidth(),
-                    singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                    label = { Text("Password") })
-                if (signup) OutlinedTextField(nickname, { nickname = it }, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Display name") })
-                Spacer(Modifier.height(12.dp))
-                Button(enabled = !busy && email.isNotBlank() && pass.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(), onClick = { runJob {
-                        if (api.authenticate(email, pass, signup, nickname)) page = 2
-                        else errorText = "Check your inbox to confirm your email, then sign in."
-                    } }) { Text(if (busy) "Connecting…" else if (signup) "Sign up" else "Sign in") }
-                TextButton(onClick = { signup = !signup }) {
-                    Text(if (signup) "Already have an account?" else "Create account")
+                Text("Welcome to MsgU", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FilterChip(selected = !mobileLogin, onClick = { mobileLogin = false; errorText = "" },
+                        label = { Text("Email") })
+                    FilterChip(selected = mobileLogin, onClick = { mobileLogin = true; errorText = "" },
+                        label = { Text("Mobile OTP") })
                 }
-                TextButton(onClick = { page = 0 }) { Text("Change backend") }
+                if (mobileLogin) {
+                    MsgUPhoneLogin(api, busy = busy, onError = { errorText = it },
+                        onSuccess = { page = 2 })
+                } else {
+                    Text(if (signup) "Create your account" else "Sign in with email and password",
+                        style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(email, { email = it }, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true, label = { Text("Email") })
+                    OutlinedTextField(pass, { pass = it }, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                        label = { Text("Password") })
+                    if (signup) OutlinedTextField(nickname, { nickname = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Display name") })
+                    Spacer(Modifier.height(12.dp))
+                    Button(enabled = !busy && email.isNotBlank() && pass.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(), onClick = { runJob {
+                            if (api.authenticate(email, pass, signup, nickname)) page = 2
+                            else errorText = "Confirm your email, then sign in."
+                        } }) { Text(if (busy) "Connecting…" else if (signup) "Sign up with Email" else "Log in with Email") }
+                    TextButton(onClick = { signup = !signup }) {
+                        Text(if (signup) "Already have an account? Log in" else "New user? Sign up")
+                    }
+                }
+                TextButton(onClick = { api.signOut(); page = 0 }) { Text("Change Supabase project") }
             }
         } else if (chat == null) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -370,5 +401,82 @@ fun MsgUCloudScreen() {
                 profileDialog = false
             } }) { Text("Save profile") } },
             dismissButton = { TextButton(onClick = { profileDialog = false }) { Text("Cancel") } })
+    }
+}
+
+
+/** No SMS permission is required: the user types the one-time code themselves. */
+@Composable
+private fun MsgUPhoneLogin(
+    api: MBackend, busy: Boolean, onError: (String) -> Unit, onSuccess: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var phone by rememberSaveable { mutableStateOf("+91") }
+    var requestedPhone by rememberSaveable { mutableStateOf("") }
+    var otp by rememberSaveable { mutableStateOf("") }
+    var working by remember { mutableStateOf(false) }
+    var cooldown by remember { mutableIntStateOf(0) }
+    LaunchedEffect(requestedPhone) {
+        if (requestedPhone.isNotEmpty()) {
+            cooldown = 60
+            while (cooldown > 0) { delay(1000L); cooldown-- }
+        }
+    }
+    Text("Sign in using SMS verification", style = MaterialTheme.typography.titleMedium)
+    Text("Include country code, e.g. +91 for India.", style = MaterialTheme.typography.bodySmall)
+    OutlinedTextField(phone, {
+        if (requestedPhone.isEmpty()) phone = it.filter { c -> c.isDigit() || c == '+' }.take(16)
+    }, enabled = !working && requestedPhone.isEmpty(), singleLine = true,
+        modifier = Modifier.fillMaxWidth(), label = { Text("Mobile number (+91...)") },
+        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone))
+    Spacer(Modifier.height(8.dp))
+    if (requestedPhone.isEmpty()) {
+        Button(enabled = !working && !busy && MsgULoginRules.validPhone(phone),
+            modifier = Modifier.fillMaxWidth(), onClick = {
+                working = true
+                scope.launch {
+                    try {
+                        api.sendPhoneCode(phone.trim())
+                        requestedPhone = phone.trim()
+                        otp = ""
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { onError(e.message ?: "Could not send SMS") }
+                    finally { working = false }
+                }
+            }) { Text(if (working) "Sending…" else "Send OTP") }
+    } else {
+        Text("Code sent to ••••" + requestedPhone.takeLast(4))
+        OutlinedTextField(otp, { otp = it.filter(Char::isDigit).take(6) },
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
+            label = { Text("6-digit OTP") },
+            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+        Button(enabled = !busy && !working && MsgULoginRules.validOtp(otp),
+            modifier = Modifier.fillMaxWidth(), onClick = {
+                working = true
+                scope.launch {
+                    try {
+                        api.verifyPhoneCode(requestedPhone, otp)
+                        otp = ""
+                        onSuccess()
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { onError(e.message ?: "Verification failed") }
+                    finally { working = false }
+                }
+            }) { Text(if (working) "Checking…" else "Verify & Log in") }
+        Row {
+            TextButton(enabled = !working && !busy && cooldown == 0, onClick = {
+                working = true
+                scope.launch {
+                    try {
+                        api.sendPhoneCode(requestedPhone)
+                        cooldown = 60
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { onError(e.message ?: "Could not resend SMS") }
+                    finally { working = false }
+                }
+            }) { Text(if (cooldown > 0) "Resend in " + cooldown + "s" else "Resend OTP") }
+            TextButton(enabled = !working, onClick = { requestedPhone = ""; otp = "" }) { Text("Change number") }
+        }
+        Text("Never share the OTP with anyone.", style = MaterialTheme.typography.bodySmall)
     }
 }
