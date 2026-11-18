@@ -56,38 +56,44 @@ jobs:
           retention-days: 14
 
   publish-preview:
-    name: Publish MsgU debug preview
+    name: Publish MsgU v0.9.3 Beta Preview
     needs: [backend-static, android-build]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish MsgU v0.8.2 preview') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish MsgU v0.9.3 preview') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Download verified APK artifact
+      - name: Download the APK built and tested in this workflow
         uses: actions/download-artifact@v4
         with:
-          name: MsgU-Smooth-debug-APK
+          name: MsgU-Reliable-Chat-APK
           path: downloaded-apk
-      - name: Prepare preview APK and SHA-256 checksum
+      - name: Rename APK and calculate SHA-256
         shell: bash
         run: |
           set -euo pipefail
           apk="$(find downloaded-apk -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           mkdir -p release
-          cp "$apk" release/MsgU-v0.8.2-Smooth-Debug.apk
-          (cd release && sha256sum MsgU-v0.8.2-Smooth-Debug.apk > MsgU-v0.8.2-Smooth-Debug.sha256)
-      - name: Publish public GitHub pre-release
+          cp "$apk" release/MsgU-v0.9.3-Reliable-Chat-Beta.apk
+          (cd release && sha256sum MsgU-v0.9.3-Reliable-Chat-Beta.apk > MsgU-v0.9.3-Reliable-Chat-Beta.sha256)
+      - name: Create preview release and upload APK
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: v0.8.2-msgu-preview
+          RELEASE_TAG: v0.9.3-msgu-chat-preview
         shell: bash
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/MsgU-v0.8.2-Smooth-Debug.apk release/MsgU-v0.8.2-Smooth-Debug.sha256 --clobber
+            gh release upload "$RELEASE_TAG" release/MsgU-v0.9.3-Reliable-Chat-Beta.apk release/MsgU-v0.9.3-Reliable-Chat-Beta.sha256 --clobber
           else
-            gh release create "$RELEASE_TAG"               release/MsgU-v0.8.2-Smooth-Debug.apk               release/MsgU-v0.8.2-Smooth-Debug.sha256               --target "$GITHUB_SHA"               --title "MsgU v0.8.2 Smooth — Debug Preview"               --notes-file RELEASE_NOTES_MSGU_V082.md               --prerelease
+            gh release create "$RELEASE_TAG" \
+              release/MsgU-v0.9.3-Reliable-Chat-Beta.apk \
+              release/MsgU-v0.9.3-Reliable-Chat-Beta.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "MsgU 0.9.3 — Internet Chat Beta (Debug)" \
+              --notes-file RELEASE_NOTES_MSGU_V093.md \
+              --prerelease
           fi
