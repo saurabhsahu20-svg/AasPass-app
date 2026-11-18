@@ -1,4 +1,9 @@
-# MsgU — Smooth Messaging Preview (Android Studio)
+# MsgU — Connected Chat Beta (v0.9.4)
+
+**Android messaging beta linked to a real Supabase project.** On a clean install, users can open Email Login directly without entering project URL or API keys. The application embeds only a public Supabase publishable API key and uses HTTPS. No private service credentials are bundled.
+
+To use it, two people must create accounts, verify Email if required, configure usernames and accept a chat request. SMS OTP requires configuring a real SMS provider. Messages currently poll about every 2.5 seconds and are **not end-to-end encrypted**. See [Setup and limitations](SUPABASE_SETUP_MSGU.md).
+
 
 **Version: 0.8.0-alpha | Source project, NOT a verified release APK.**
 

@@ -42,6 +42,8 @@ begin
   return new;
 end
 $$;
+-- Signup trigger requires elevated privileges; block direct RPC calls by app users.
+revoke all on function public.msgu_create_profile() from public, anon, authenticated;
 drop trigger if exists msgu_profile_signup on auth.users;
 create trigger msgu_profile_signup after insert on auth.users
   for each row execute function public.msgu_create_profile();

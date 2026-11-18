@@ -36,8 +36,9 @@ private data class MMessage(val id: String, val text: String, val sender: String
 private val UUID_REGEX = Regex("^[0-9a-f-]{36}$")
 private class MBackend(ctx: Context) {
     private val prefs = ctx.getSharedPreferences("msgu_supabase", Context.MODE_PRIVATE)
-    private var url = prefs.getString("url", "").orEmpty()
-    private var key = prefs.getString("key", "").orEmpty()
+    // Public client connection. No secret/service_role credential is bundled.
+    private var url = prefs.getString("url", "https://iatntpqytgzlfilveykd.supabase.co").orEmpty()
+    private var key = prefs.getString("key", "sb_publishable_RNMnlkgmsC7LtuxEvb096A_weEbqAX0").orEmpty()
     private var token = prefs.getString("token", "").orEmpty()
     private var refresh = prefs.getString("refresh", "").orEmpty()
     private var expires = prefs.getLong("expires", 0)
@@ -301,6 +302,7 @@ fun MsgUCloudScreen() {
             var signup by rememberSaveable { mutableStateOf(false) }
             Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
                 Text("Welcome to MsgU", style = MaterialTheme.typography.titleLarge)
+                Text("Connected to MsgU Cloud", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterChip(selected = !mobileLogin, onClick = { mobileLogin = false; errorText = "" },
