@@ -416,7 +416,8 @@ private fun MsgUPhoneLogin(
     var otp by rememberSaveable { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var cooldown by remember { mutableIntStateOf(0) }
-    LaunchedEffect(requestedPhone) {
+    var resendCycle by remember { mutableIntStateOf(0) }
+    LaunchedEffect(requestedPhone, resendCycle) {
         if (requestedPhone.isNotEmpty()) {
             cooldown = 60
             while (cooldown > 0) { delay(1000L); cooldown-- }
@@ -469,7 +470,7 @@ private fun MsgUPhoneLogin(
                 scope.launch {
                     try {
                         api.sendPhoneCode(requestedPhone)
-                        cooldown = 60
+                        resendCycle++
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { onError(e.message ?: "Could not resend SMS") }
                     finally { working = false }
