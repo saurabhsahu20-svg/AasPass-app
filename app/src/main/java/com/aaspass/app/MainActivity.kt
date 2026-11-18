@@ -153,22 +153,17 @@ private fun AasPassNavigation(repository: AasPassRepository, profile: UserProfil
 
 @Composable
 private fun SetupRequired() {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(30.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Image(painterResource(R.drawable.splash_mark), null, Modifier.size(112.dp))
-        Spacer(Modifier.height(24.dp))
-        Text("AasPass", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Connect • Chat • Call • Learn", color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(22.dp))
-        Text("Firebase setup is required", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Add your own app/google-services.json, enable Email/Password authentication, " +
-                "and deploy the included Firestore rules. The app does not simulate sign-in or messages.",
-            textAlign = TextAlign.Center
-        )
+    var showSetup by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("MsgU", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("💎 Crystal Jelly Studio · Offline Preview", color = MaterialTheme.colorScheme.primary)
+        TextButton(onClick = { showSetup = !showSetup }) {
+            Text(if (showSetup) "Hide chat setup" else "Enable real chat · Firebase setup")
+        }
+        if (showSetup) {
+            Text("Real messaging needs your own app/google-services.json, Email/Password Auth and deployed Firestore rules. This build does not simulate messages.",
+                style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+        }
+        JellyGallery(Modifier.weight(1f))
     }
 }

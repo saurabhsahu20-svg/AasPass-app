@@ -99,7 +99,7 @@ fun HomeScreen(
                             placeholder = { Text("Search conversations") }, singleLine = true
                         )
                     } else {
-                        Text("AasPass", fontWeight = FontWeight.Bold)
+                        Text("MsgU", fontWeight = FontWeight.Bold)
                     }
                 },
                 actions = {
@@ -172,7 +172,7 @@ fun HomeScreen(
         AlertDialog(
             onDismissRequest = { dismissNotificationOffer() },
             title = { Text("Message & call alerts") },
-            text = { Text("Allow notifications so AasPass can alert you about new chats, group invites and incoming calls. You can change this any time in Android Settings.") },
+            text = { Text("Allow notifications so MsgU can alert you about new chats, group invites and incoming calls. You can change this any time in Android Settings.") },
             confirmButton = { TextButton(onClick = {
                 dismissNotificationOffer()
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -205,7 +205,7 @@ private fun ChatList(
                 Text(if (search.isBlank()) "No conversations yet" else "No matching conversations",
                     style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                Text("Start a chat using a discoverable AasPass username.",
+                Text("Start a chat using a discoverable MsgU username.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

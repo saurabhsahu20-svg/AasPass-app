@@ -35,9 +35,9 @@ fun AuthScreen(repository: AasPassRepository) {
         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(32.dp))
-        Image(painterResource(R.drawable.splash_mark), "AasPass logo", Modifier.size(106.dp))
+        Image(painterResource(R.drawable.splash_mark), "MsgU logo", Modifier.size(106.dp))
         Spacer(Modifier.height(22.dp))
-        Text("AasPass", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("MsgU", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("Connect • Chat • Call • Learn", color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(36.dp))
         Text(if (signup) "Create your account" else "Welcome back", style = MaterialTheme.typography.titleLarge)
@@ -166,7 +166,7 @@ fun ProfileSetupScreen(repository: AasPassRepository) {
                 }
             }, enabled = !busy,
             modifier = Modifier.fillMaxWidth()
-        ) { Text(if (busy) "Saving…" else "Continue to AasPass") }
+        ) { Text(if (busy) "Saving…" else "Continue to MsgU") }
         TextButton(onClick = {
             scope.launch {
                 try { repository.logout() }

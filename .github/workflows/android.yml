@@ -1,4 +1,4 @@
-name: AasPass Android + Backend CI
+name: MsgU Android + Backend CI
 on:
   push:
     branches: [main]
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: AasPass-debug-unsigned-alpha
+          name: MsgU-debug-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 3

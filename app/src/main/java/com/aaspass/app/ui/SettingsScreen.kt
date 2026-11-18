@@ -95,7 +95,7 @@ fun SettingsScreen(repository: AasPassRepository, profile: UserProfile) {
         }) { Text("Sign out") }
         Spacer(Modifier.height(18.dp))
         TextButton(onClick = { deleteDialog = true }) {
-            Text("Permanently delete my AasPass account", color = MaterialTheme.colorScheme.error)
+            Text("Permanently delete my MsgU account", color = MaterialTheme.colorScheme.error)
         }
     }
     if (deleteDialog) {
@@ -104,7 +104,7 @@ fun SettingsScreen(repository: AasPassRepository, profile: UserProfile) {
         var deleting by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { if (!deleting) deleteDialog = false },
-            title = { Text("Delete AasPass account permanently?") },
+            title = { Text("Delete MsgU account permanently?") },
             text = {
                 Column {
                     Text("Your profile, your direct conversations (including the other person's copies), owned groups, and uploaded media will be deleted. Other people's safety reports may be retained. This cannot be undone.")
