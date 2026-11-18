@@ -30,3 +30,41 @@ jobs:
           path: msgu/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
+
+  release-preview:
+    name: Publish MsgU Firebase-free preview
+    needs: [android-build]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/msgu-supabase-internet-chat' && startsWith(github.event.head_commit.message, 'Publish MsgU v0.9.0 Supabase') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: MsgU-Supabase-Internet-Debug-APK
+          path: artifacts
+      - name: Prepare APK and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find artifacts -type f -name '*.apk' -print -quit)"
+          test -n "$apk"
+          mkdir -p release
+          cp "$apk" release/MsgU-v0.9.0-Internet-Chat-Debug.apk
+          (cd release && sha256sum MsgU-v0.9.0-Internet-Chat-Debug.apk > MsgU-v0.9.0-Internet-Chat-Debug.sha256)
+      - name: Create GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="v0.9.0-msgu-supabase-preview"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/MsgU-v0.9.0-Internet-Chat-Debug.apk release/MsgU-v0.9.0-Internet-Chat-Debug.sha256 --clobber
+          else
+            gh release create "$tag" release/MsgU-v0.9.0-Internet-Chat-Debug.apk release/MsgU-v0.9.0-Internet-Chat-Debug.sha256 \
+              --target "$GITHUB_SHA" --title "MsgU 0.9.0 • Firebase-free Internet Chat Preview" \
+              --notes-file RELEASE_NOTES_MSGU_SUPABASE.md --prerelease
+          fi
