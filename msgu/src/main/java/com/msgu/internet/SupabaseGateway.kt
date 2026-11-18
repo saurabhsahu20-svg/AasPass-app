@@ -97,7 +97,8 @@ class SupabaseGateway(context: Context) {
         val bytes = cipher.iv + cipher.doFinal(payload.toByteArray(Charsets.UTF_8))
         prefs.edit().putString("session", Base64.encodeToString(bytes,Base64.NO_WRAP)).apply()
     }
-    private fun restoreSession(): UserSession? = try {
+    private fun restoreSession(): UserSession? {
+        return try {
         val stored = prefs.getString("session",null) ?: return null
         val bytes = Base64.decode(stored,Base64.NO_WRAP)
         if (bytes.size <= 12) return null
@@ -106,6 +107,7 @@ class SupabaseGateway(context: Context) {
         val j = JSONObject(String(cipher.doFinal(bytes.copyOfRange(12,bytes.size)),Charsets.UTF_8))
         UserSession(j.getString("uid"),j.getString("access"),j.getString("refresh"),j.getLong("expiry"))
     } catch (_: Exception) { null }
+    }
     fun clearLocalSession() {
         session = null
         prefs.edit().remove("session").apply()
@@ -116,12 +118,12 @@ class SupabaseGateway(context: Context) {
         val conf = config
         if (!ConfigRules.validUrl(conf.url) || !ConfigRules.validKey(conf.publicKey))
             throw ApiProblem("Enter your Supabase project URL and publishable key first.")
-        val token = if (authenticated) session?.access ?: throw ApiProblem("Sign in first.") else conf.publicKey
+        val token = if (authenticated) session?.access ?: throw ApiProblem("Sign in first.") else ""
         return withContext(Dispatchers.IO) {
             val builder = Request.Builder().url(conf.url + path)
                 .header("apikey",conf.publicKey)
-                .header("Authorization","Bearer " + token)
                 .header("Accept","application/json")
+            if (authenticated) builder.header("Authorization","Bearer " + token)
                 .header("Prefer","return=representation")
             val requestBody = json?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())
             builder.method(method,if (method == "GET" || method == "DELETE") null else
