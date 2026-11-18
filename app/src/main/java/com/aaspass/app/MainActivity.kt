@@ -60,7 +60,7 @@ private fun Root(pendingTarget: NotificationDestination?, onTargetConsumed: () -
         FirebaseApp.getApps(context).isNotEmpty() || FirebaseApp.initializeApp(context) != null
     }
     if (!configured) {
-        SetupRequired()
+        MsgUCloudScreen()
         return
     }
     val auth = remember { FirebaseAuth.getInstance() }
