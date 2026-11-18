@@ -90,7 +90,8 @@ revoke all on public.msgu_profiles, public.msgu_chats, public.msgu_messages from
 grant select on public.msgu_profiles, public.msgu_chats, public.msgu_messages to authenticated;
 grant update(username,display_name,discoverable) on public.msgu_profiles to authenticated;
 grant update(status) on public.msgu_chats to authenticated;
-grant insert(chat_id,sender_id,body) on public.msgu_messages to authenticated;
+-- The client supplies its own unique message id for retry-safe idempotent sends.
+grant insert(id,chat_id,sender_id,body) on public.msgu_messages to authenticated;
 
 -- Limited SECURITY DEFINER: chat request is only permitted to an explicitly discoverable username.
 create or replace function public.msgu_start_chat(handle text)

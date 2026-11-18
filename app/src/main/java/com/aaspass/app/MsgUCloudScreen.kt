@@ -29,9 +29,11 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.UUID
 
 private data class MChat(val id: String, val peer: String, val status: String, val incoming: Boolean)
 private data class MMessage(val id: String, val text: String, val sender: String)
+private val UUID_REGEX = Regex("^[0-9a-f-]{36}$")
 private class MBackend(ctx: Context) {
     private val prefs = ctx.getSharedPreferences("msgu_supabase", Context.MODE_PRIVATE)
     private var url = prefs.getString("url", "").orEmpty()
@@ -60,7 +62,10 @@ private class MBackend(ctx: Context) {
         token = ""; refresh = ""; uid = ""; expires = 0L
         prefs.edit().remove("token").remove("refresh").remove("uid").remove("expires").apply()
     }
-    private suspend fun request(method: String, path: String, body: JSONObject? = null, signed: Boolean = false): String =
+    private suspend fun request(
+        method: String, path: String, body: JSONObject? = null, signed: Boolean = false,
+        prefer: String? = null
+    ): String =
         withContext(Dispatchers.IO) {
             val conn = URL(url + path).openConnection() as HttpURLConnection
             try {
@@ -69,6 +74,7 @@ private class MBackend(ctx: Context) {
                 conn.readTimeout = 16000
                 conn.setRequestProperty("apikey", key)
                 conn.setRequestProperty("Accept", "application/json")
+                if (prefer != null) conn.setRequestProperty("Prefer", prefer)
                 if (signed) conn.setRequestProperty("Authorization", "Bearer " + token)
                 if (body != null) {
                     conn.doOutput = true
@@ -119,14 +125,16 @@ private class MBackend(ctx: Context) {
         saveSession(session)
         check(authenticated) { "Verification failed; request a new code" }
     }
-    private suspend fun authenticatedRequest(method: String, path: String, body: JSONObject? = null): String {
+    private suspend fun authenticatedRequest(
+        method: String, path: String, body: JSONObject? = null, prefer: String? = null
+    ): String {
         check(authenticated) { "Please sign in" }
         if (System.currentTimeMillis() >= expires - 90000) {
             val json = JSONObject(request("POST", "/auth/v1/token?grant_type=refresh_token",
                 JSONObject().put("refresh_token", refresh)))
             saveSession(json)
         }
-        return request(method, "/rest/v1/" + path, body, true)
+        return request(method, "/rest/v1/" + path, body, true, prefer)
     }
     suspend fun profile(): JSONObject =
         JSONArray(authenticatedRequest("GET", "msgu_profiles?select=id,username,display_name,discoverable&id=eq." + uid))
@@ -148,10 +156,31 @@ private class MBackend(ctx: Context) {
     suspend fun chats(): List<MChat> {
         val arr = JSONArray(authenticatedRequest("GET", "msgu_chats?select=id,user_a,user_b,status,requested_by&or=(user_a.eq."
             + uid + ",user_b.eq." + uid + ")&order=created_at.desc&limit=100"))
+        val peerIds = (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { row ->
+                val a = row.optString("user_a"); val b = row.optString("user_b")
+                (if (a == uid) b else a).takeIf { UUID_REGEX.matches(it) }
+            }
+        }.distinct()
+        // Only profile names shared by a chat participant can be read (Supabase RLS).
+        val names = mutableMapOf<String, String>()
+        if (peerIds.isNotEmpty()) {
+            val selection = peerIds.joinToString(",")
+            val profiles = JSONArray(authenticatedRequest("GET",
+                "msgu_profiles?select=id,display_name,username&id=in.(" + selection + ")"))
+            for (i in 0 until profiles.length()) {
+                profiles.optJSONObject(i)?.let { row ->
+                    names[row.optString("id")] = row.optString("display_name")
+                        .ifBlank { row.optString("username") }
+                }
+            }
+        }
         return (0 until arr.length()).mapNotNull { i ->
             val row = arr.optJSONObject(i) ?: return@mapNotNull null
             val a = row.optString("user_a"); val b = row.optString("user_b")
-            MChat(row.optString("id"), (if (a == uid) b else a).take(12),
+            val peerId = if (a == uid) b else a
+            MChat(row.optString("id"),
+                names[peerId]?.takeIf { it.isNotBlank() } ?: "Contact " + peerId.take(8),
                 row.optString("status"), row.optString("requested_by") != uid)
         }
     }
@@ -162,11 +191,16 @@ private class MBackend(ctx: Context) {
             MMessage(it.optString("id"), it.optString("body"), it.optString("sender_id"))
         } }.asReversed()
     }
-    suspend fun send(chatId: String, text: String) {
+    suspend fun send(chatId: String, text: String, idempotencyId: String) {
         val clean = text.trim()
         require(clean.length in 1..3000) { "Message must contain 1–3000 characters" }
-        authenticatedRequest("POST", "msgu_messages",
-            JSONObject().put("chat_id", chatId).put("sender_id", uid).put("body", clean))
+        require(UUID_REGEX.matches(idempotencyId)) { "Invalid message ID" }
+        // PostgREST ignore-duplicates upsert: retrying an ambiguous network timeout
+        // cannot create two messages with the same client-generated UUID.
+        authenticatedRequest("POST", "msgu_messages?on_conflict=id",
+            JSONObject().put("id", idempotencyId).put("chat_id", chatId)
+                .put("sender_id", uid).put("body", clean),
+            prefer = "resolution=ignore-duplicates")
     }
     suspend fun decide(chatId: String, accept: Boolean) {
         authenticatedRequest("PATCH", "msgu_chats?id=eq." + chatId,
@@ -232,7 +266,8 @@ fun MsgUCloudScreen() {
                 if (chat != null) TextButton(onClick = { chat = null; messages = emptyList() }) { Text("‹") }
                 Column(Modifier.weight(1f)) {
                     Text("MsgU", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("Connect • Chat • Share", style = MaterialTheme.typography.labelSmall)
+                    Text(if (chat == null) "Connect • Chat • Share" else chat?.peer.orEmpty(),
+                        style = MaterialTheme.typography.labelSmall)
                 }
                 if (page == 2 && chat == null) {
                     TextButton(onClick = { profileDialog = true }) { Text("Profile") }
@@ -308,7 +343,7 @@ fun MsgUCloudScreen() {
                     ElevatedCard(onClick = { chat = item; messages = emptyList() },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                         Column(Modifier.padding(16.dp)) {
-                            Text("Contact " + item.peer, fontWeight = FontWeight.Bold)
+                            Text(item.peer, fontWeight = FontWeight.Bold)
                             Text(when (item.status) {
                                 "accepted" -> "Open conversation"
                                 "requested" -> if (item.incoming) "Chat request received" else "Waiting for acceptance"
@@ -335,8 +370,19 @@ fun MsgUCloudScreen() {
                     else "Chat request was declined", Modifier.padding(20.dp))
             } else {
                 val scroll = rememberLazyListState()
+                var lastVisibleMessage by remember(active.id) { mutableStateOf<String?>(null) }
                 LaunchedEffect(messages.lastOrNull()?.id) {
-                    if (messages.isNotEmpty()) scroll.scrollToItem(messages.lastIndex)
+                    val latest = messages.lastOrNull() ?: return@LaunchedEffect
+                    if (lastVisibleMessage == latest.id) return@LaunchedEffect
+                    val firstLoad = lastVisibleMessage == null
+                    lastVisibleMessage = latest.id
+                    val totalBefore = scroll.layoutInfo.totalItemsCount
+                    val bottom = scroll.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                    val nearBottom = totalBefore == 0 || bottom >= totalBefore - 3
+                    // Do not interrupt the person when they are reading older messages.
+                    if (firstLoad || nearBottom || latest.sender == api.uid) {
+                        scroll.scrollToItem(messages.lastIndex)
+                    }
                 }
                 LazyColumn(Modifier.weight(1f), state = scroll,
                     contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -352,19 +398,34 @@ fun MsgUCloudScreen() {
                     }
                 }
                 var draft by rememberSaveable(active.id) { mutableStateOf("") }
+                var pendingId by rememberSaveable(active.id) { mutableStateOf("") }
                 var sending by remember { mutableStateOf(false) }
                 fun send() {
                     if (sending || draft.isBlank()) return
                     val text = draft.trim()
+                    if (pendingId.isBlank()) pendingId = UUID.randomUUID().toString()
+                    val attemptId = pendingId
                     sending = true
                     scope.launch {
-                        try { api.send(active.id, text); draft = ""; messages = api.messages(active.id); errorText = "" }
-                        catch (e: Exception) { errorText = "Not sent: " + (e.message ?: "please retry") }
-                        finally { sending = false }
+                        try {
+                            api.send(active.id, text, attemptId)
+                            if (draft.trim() == text) draft = ""
+                            pendingId = ""
+                            errorText = ""
+                            // Sending succeeded even if this optional refresh fails.
+                            runCatching { messages = api.messages(active.id) }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            errorText = "Could not confirm send. Retry with the same ID: " +
+                                (e.message ?: "network issue")
+                        } finally { sending = false }
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(draft, { draft = it.take(3000) }, Modifier.weight(1f),
+                    OutlinedTextField(draft, {
+                        if (it != draft) pendingId = ""
+                        draft = it.take(3000)
+                    }, Modifier.weight(1f),
                         placeholder = { Text("Message") }, maxLines = 5,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = { send() }))

@@ -1,16 +1,26 @@
-# MsgU 0.9.1 — Connect Internet Chat (Email or Phone)
+# MsgU 0.9.3 — User setup and reliability
 
-This beta uses **your own Supabase backend**. There is no built-in shared server; without project setup, messages cannot reach other phones.
+**Source project:** MsgU uses a personal Supabase backend for authentication and chat, with no Firebase needed for the Supabase screen. It is a **beta APK**, not verified WhatsApp-equivalent or E2EE.
 
-1. Create a project in https://supabase.com/dashboard and wait for the database to become active.
-2. Open **SQL Editor → New query**, copy the entire file `supabase/01_msgu_chat.sql`, run it, and review success. This configures private profiles, messaging and Row Level Security (RLS). Do not enable unrestricted anon table access.
-3. Open **Authentication → Providers** and enable **Email**. For testing, be aware Supabase's default SMTP is restrictive; email confirmation generally requires a configured custom SMTP service for users outside your project team. You can use test accounts under suitable controlled test settings.
-4. Optional **Phone login**: **Authentication → Providers → Phone → Enable** and configure an SMS provider (such as Twilio, MessageBird or Vonage). SMS deliveries may cost money. In India, check telecom DLT requirements and provider support. You can use Supabase test phone numbers and static OTPs for isolated testing. Follow https://supabase.com/docs/guides/auth/phone-login. Set rate limits and CAPTCHA appropriately before wider distribution.
-5. Open project **Connect / Project URL** and **Settings → API Keys**; copy only the **Project URL** (`https://PROJECT.supabase.co`) and **publishable API key** (`sb_publishable_...`). **Never put a service_role/secret key or your account password in the APK or GitHub.**
-6. Install the beta APK on two devices. Enter the **same Project URL and publishable key** on both (they share a backend). Each user logs in with a different Email/Password, or (if configured) Mobile OTP.
-7. In **Profile**, set a unique username and enable **Allow username discovery** for the intended recipient. The sender enters that exact username under **New chat**. Recipient opens MsgU and **Accepts** the chat request. Messages can now be exchanged.
-8. The chat view polls about every 2.5 seconds. This is not push notification or WhatsApp-style E2EE. It does not have background notifications, group calling or attachments on Supabase. Do not use the beta for sensitive conversations.
+## One-time connection
+1. Create an account and project in https://supabase.com/dashboard .
+2. Open your Supabase project's SQL Editor, run the complete `supabase/01_msgu_chat.sql` file. The SQL creates the `msgu_profiles`, `msgu_chats`, and `msgu_messages` tables, Row-Level Security policies, and `msgu_start_chat` function. If you previously ran the older file, run the updated file again so idempotent message IDs are allowed.
+3. In Supabase Auth Providers, enable **Email**. For standard confirmation emails, configure an approved SMTP provider. If this is a student project, have a parent/guardian help with any account or payment setup.
+4. For optional **Phone OTP**, enable Phone auth and set up a supported SMS provider. SMS may incur costs. You can test using Supabase's test phone numbers and OTPs instead of purchasing SMS during development. Do not collect or share personal OTPs.
+5. Copy the **Project URL** and **Publishable Key** only (NOT secret/service_role key). Enter both on the first MsgU setup screen; both devices must use the **same** project. Never share passwords, OTPs or project admin secrets.
+6. Create two accounts and confirm their emails if required, or verify a phone number with SMS. Set a username and enable 'Allow username discovery' from the recipient's profile.
+7. Sender uses **+ New chat → exact username**. Recipient opens MsgU and **accepts**. Both can exchange messages. New chats refresh about every 5 seconds, open messages about every 2.5 seconds.
 
-**Testing requirement:** GitHub Actions compiling the APK is not proof that SMS/email delivery or two-device messages work. Test both with a configured project. Phone numbers and OTPs must never be collected in app logs or shared with other people.
+## Expected behavior and limitations
+- Chat list now shows contact names from mutually accessible profiles rather than raw UUIDs.
+- Each outgoing message has an idempotency UUID, so **retry after an uncertain timeout uses the same ID** and should not create a duplicate. This requires the updated SQL grant.
+- The composer preserves text after failed sends and users can manually retry. A successful send clears text before attempting a best-effort refresh.
+- While reading old messages, a new incoming message should not forcibly jump the scroll to the bottom.
+- Email and SMS work only when configured with real Supabase providers; we cannot claim actual OTP delivery without testing.
+- Not implemented on the Supabase path: end-to-end encryption, background notifications, group chat, media transfer, voice/video calls, reliable delivery receipts, WhatsApp-grade performance.
+- Chat data is on your Supabase project, protected with RLS; project administrators may access unencrypted chat text.
 
-**APK installation note:** GitHub Actions debug builds use temporary signing certificates; Android may refuse to install an update over a differently signed APK. Back up important local data before any uninstall.
+## Android signing
+GitHub Actions builds a debug APK with a runner-specific signing certificate. APK updates from different runs may require uninstalling the old debug app, so preserve important data before any reinstall. A stable production signing key must be configured privately for public releases.
+
+The GitHub Actions build verifies Kotlin/Android compilation and unit/backend tests, but does **not** validate real two-device chat, production reliability or Supabase project setup.
