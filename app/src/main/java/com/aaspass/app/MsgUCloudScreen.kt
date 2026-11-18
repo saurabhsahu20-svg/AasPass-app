@@ -1,6 +1,8 @@
 package com.aaspass.app
 
 import android.content.Context
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -86,20 +88,29 @@ private class MBackend(ctx: Context) {
                 val value = (if (status in 200..299) conn.inputStream else conn.errorStream)
                     ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 if (status !in 200..299) {
-                    val message = runCatching { JSONObject(value).let {
-                        it.optString("msg").ifBlank { it.optString("message").ifBlank {
-                            it.optString("error_description").ifBlank { it.optString("error") }
-                        } }
-                    } }.getOrDefault("")
-                    error(if (status == 401 || status == 403) "Permission denied or session expired"
-                          else message.ifBlank { "Network/server error " + status }.take(180))
+                    val payload = runCatching { JSONObject(value) }.getOrNull()
+                    val code = payload?.optString("code").orEmpty()
+                        .ifBlank { payload?.optString("error_code").orEmpty() }
+                    val message = payload?.optString("msg").orEmpty()
+                        .ifBlank { payload?.optString("message").orEmpty() }
+                        .ifBlank { payload?.optString("error_description").orEmpty() }
+                        .ifBlank { payload?.optString("error").orEmpty() }
+                    error(MsgUAuthErrors.describe(status, code, message))
                 }
                 value
             } finally { conn.disconnect() }
         }
     private fun saveSession(json: JSONObject) {
-        token = json.optString("access_token")
-        refresh = json.optString("refresh_token", refresh)
+        val newToken = json.optString("access_token")
+        val newRefresh = json.optString("refresh_token")
+        // Supabase signup with Confirm Email enabled returns a user but NO session.
+        // Never treat the returned user as signed in before verification.
+        if (newToken.isBlank() || newRefresh.isBlank()) {
+            signOut()
+            return
+        }
+        token = newToken
+        refresh = newRefresh
         uid = json.optJSONObject("user")?.optString("id")?.takeIf { it.isNotBlank() } ?: uid
         expires = System.currentTimeMillis() + json.optLong("expires_in", 3600) * 1000L
         prefs.edit().putString("token", token).putString("refresh", refresh)
@@ -112,6 +123,13 @@ private class MBackend(ctx: Context) {
         if (create) body.put("data", JSONObject().put("display_name", name.trim().take(50)))
         saveSession(JSONObject(request("POST", path, body)))
         return authenticated
+    }
+    suspend fun resendSignupConfirmation(email: String) {
+        val cleaned = email.trim()
+        require(MsgUAuthErrors.validEmail(cleaned)) { "Enter your registered email address first" }
+        // This can only deliver if Supabase Auth has an SMTP provider and quota.
+        request("POST", "/auth/v1/resend",
+            JSONObject().put("type", "signup").put("email", cleaned))
     }
     suspend fun sendPhoneCode(number: String) {
         require(MsgULoginRules.validPhone(number)) { "Enter a phone number with country code, e.g. +919876543210" }
@@ -300,9 +318,20 @@ fun MsgUCloudScreen() {
             var pass by rememberSaveable { mutableStateOf("") }
             var nickname by rememberSaveable { mutableStateOf("") }
             var signup by rememberSaveable { mutableStateOf(false) }
-            Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.Center) {
+            var pendingVerification by rememberSaveable { mutableStateOf(false) }
+            var resendCount by remember { mutableIntStateOf(0) }
+            var resendSeconds by remember { mutableIntStateOf(0) }
+            LaunchedEffect(resendCount) {
+                if (resendCount > 0) {
+                    resendSeconds = 60
+                    while (resendSeconds > 0) { delay(1000L); resendSeconds-- }
+                }
+            }
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp),
+                verticalArrangement = Arrangement.Center) {
                 Text("Welcome to MsgU", style = MaterialTheme.typography.titleLarge)
-                Text("Connected to MsgU Cloud", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text("Connected to MsgU Cloud",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterChip(selected = !mobileLogin, onClick = { mobileLogin = false; errorText = "" },
@@ -314,23 +343,74 @@ fun MsgUCloudScreen() {
                     MsgUPhoneLogin(api, busy = busy, onError = { errorText = it },
                         onSuccess = { page = 2 })
                 } else {
+                    if (pendingVerification) {
+                        ElevatedCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text("Verify your email to activate MsgU",
+                                    style = MaterialTheme.typography.titleMedium)
+                                Text("Check Inbox and Spam, then open the confirmation link. " +
+                                    "Return to MsgU and sign in with your email and password. " +
+                                    "If the email has not arrived, MsgU's email service may need SMTP setup.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    pendingVerification = false
+                                    signup = false
+                                    pass = ""
+                                    errorText = ""
+                                }) { Text("I verified my email · Sign in") }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
                     Text(if (signup) "Create your account" else "Sign in with email and password",
                         style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(email, { email = it }, modifier = Modifier.fillMaxWidth(),
-                        singleLine = true, label = { Text("Email") })
+                    OutlinedTextField(email, {
+                        if (email != it) pendingVerification = false
+                        email = it.take(254)
+                    }, modifier = Modifier.fillMaxWidth(),
+                        singleLine = true, label = { Text("Email address") })
                     OutlinedTextField(pass, { pass = it }, modifier = Modifier.fillMaxWidth(),
                         singleLine = true, visualTransformation = PasswordVisualTransformation(),
                         label = { Text("Password") })
                     if (signup) OutlinedTextField(nickname, { nickname = it }, modifier = Modifier.fillMaxWidth(),
                         label = { Text("Display name") })
                     Spacer(Modifier.height(12.dp))
-                    Button(enabled = !busy && email.isNotBlank() && pass.isNotBlank(),
+                    Button(enabled = !busy && MsgUAuthErrors.validEmail(email) && pass.isNotBlank() &&
+                            (!signup || nickname.trim().length in 2..50),
                         modifier = Modifier.fillMaxWidth(), onClick = { runJob {
-                            if (api.authenticate(email, pass, signup, nickname)) page = 2
-                            else errorText = "Confirm your email, then sign in."
-                        } }) { Text(if (busy) "Connecting…" else if (signup) "Sign up with Email" else "Log in with Email") }
-                    TextButton(onClick = { signup = !signup }) {
-                        Text(if (signup) "Already have an account? Log in" else "New user? Sign up")
+                            if (api.authenticate(email, pass, signup, nickname)) {
+                                pendingVerification = false
+                                page = 2
+                            } else {
+                                pendingVerification = true
+                                pass = ""
+                                errorText = ""
+                                // A signup response without a session is NOT evidence of email delivery.
+                            }
+                        } }) {
+                        Text(if (busy) "Connecting…" else if (signup) "Sign up with Email" else "Log in with Email")
+                    }
+                    TextButton(onClick = {
+                        signup = !signup
+                        pendingVerification = false
+                        errorText = ""
+                    }) { Text(if (signup) "Already have an account? Log in" else "New user? Sign up") }
+
+                    HorizontalDivider(Modifier.padding(vertical = 9.dp))
+                    Text("Not receiving your confirmation email?",
+                        style = MaterialTheme.typography.labelLarge)
+                    Text("Supabase default mail is limited. Resend only works when the " +
+                        "project's email provider can deliver to your address.",
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(enabled = !busy && resendSeconds == 0 &&
+                            MsgUAuthErrors.validEmail(email), onClick = { runJob {
+                        api.resendSignupConfirmation(email)
+                        resendCount++
+                        errorText = "Confirmation email requested. Check Inbox and Spam. " +
+                            "If nothing arrives, the MsgU administrator must configure Custom SMTP."
+                    } }) {
+                        Text(if (resendSeconds > 0) "Resend available in " + resendSeconds + "s"
+                            else "Resend confirmation email")
                     }
                 }
                 TextButton(onClick = { api.signOut(); page = 0 }) { Text("Change Supabase project") }

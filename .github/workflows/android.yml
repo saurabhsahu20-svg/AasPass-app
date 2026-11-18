@@ -50,50 +50,50 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: MsgU-Connected-APK
+          name: MsgU-Email-Verification-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
   publish-preview:
-    name: Publish MsgU v0.9.4 Connected Debug Preview
+    name: Publish MsgU v0.9.5 Email Verification Preview
     needs: [backend-static, android-build]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish MsgU v0.9.4 connected preview') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish MsgU v0.9.5 email-verification preview') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Download tested build
+      - name: Download verified APK
         uses: actions/download-artifact@v4
         with:
-          name: MsgU-Connected-APK
+          name: MsgU-Email-Verification-APK
           path: downloaded-apk
-      - name: Prepare release artifacts
+      - name: Prepare build and SHA-256
         shell: bash
         run: |
           set -euo pipefail
           apk="$(find downloaded-apk -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           mkdir -p release
-          cp "$apk" release/MsgU-v0.9.4-Connected-Debug.apk
-          (cd release && sha256sum MsgU-v0.9.4-Connected-Debug.apk > MsgU-v0.9.4-Connected-Debug.sha256)
-      - name: Publish public GitHub pre-release
+          cp "$apk" release/MsgU-v0.9.5-Email-Verification-Debug.apk
+          (cd release && sha256sum MsgU-v0.9.5-Email-Verification-Debug.apk > MsgU-v0.9.5-Email-Verification-Debug.sha256)
+      - name: Publish pre-release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: v0.9.4-msgu-connected-preview
+          RELEASE_TAG: v0.9.5-msgu-email-verification
         shell: bash
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/MsgU-v0.9.4-Connected-Debug.apk release/MsgU-v0.9.4-Connected-Debug.sha256 --clobber
+            gh release upload "$RELEASE_TAG" release/MsgU-v0.9.5-Email-Verification-Debug.apk release/MsgU-v0.9.5-Email-Verification-Debug.sha256 --clobber
           else
             gh release create "$RELEASE_TAG" \
-              release/MsgU-v0.9.4-Connected-Debug.apk \
-              release/MsgU-v0.9.4-Connected-Debug.sha256 \
+              release/MsgU-v0.9.5-Email-Verification-Debug.apk \
+              release/MsgU-v0.9.5-Email-Verification-Debug.sha256 \
               --target "$GITHUB_SHA" \
-              --title "MsgU v0.9.4 — Connected Chat Beta (Debug)" \
-              --notes-file RELEASE_NOTES_MSGU_V094.md \
+              --title "MsgU v0.9.5 — Email Verification Fix (Debug Beta)" \
+              --notes-file RELEASE_NOTES_MSGU_V095.md \
               --prerelease
           fi

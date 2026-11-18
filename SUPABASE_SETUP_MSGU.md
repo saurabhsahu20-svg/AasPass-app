@@ -1,20 +1,24 @@
-# MsgU v0.9.4 — Already connected to the user's Supabase project
+# MsgU v0.9.5 — Email confirmation troubleshooting
 
-The new MsgU APK embeds only the **public project URL and publishable key** of the Supabase project created on November 18, 2026. Users no longer need to manually enter those details on a clean install. No service_role/secret key is embedded.
+The app is already connected to Supabase project `iatntpqytgzlfilveykd`. **No custom project URL or API key needs to be entered on a clean install.**
 
-The backend has been created and the SQL schema in `supabase/01_msgu_chat.sql` applied, with three private RLS tables, profile auto-creation and a restricted chat-request function. The app and database are not end-to-end encrypted.
+### Confirm Email is intentionally ON
+The Supabase default SMTP sender only delivers to project team addresses and has very strict rate limits. Project Auth logs recorded `over_email_send_rate_limit` (HTTP 429) for a signup/email action. This is a server-side delivery limitation: an app-only update cannot make emails appear.
 
-## Start chatting
-1. Install the connected APK. Use **Email Login → Create Account** or choose **Mobile OTP** only after phone auth and an SMS provider have been configured.
-2. Email users must complete email confirmation when enabled. Supabase default email delivery is restricted; custom SMTP may be required before outside users can sign up. A project administrator must configure SMS and country rules for phone OTP; charges may apply.
-3. Both people must register on this SAME Supabase project. In Profile, set a unique username. The recipient chooses **Allow username discovery**.
-4. Sender taps **+ New chat**, enters the recipient's exact username and sends the request; recipient opens MsgU and selects **Accept chat request**.
-5. Send messages. The beta polls open chats about every 2.5 seconds. After a timeout, manual retry reuses a client-generated UUID to avoid duplicate messages.
+**To enable confirmation emails to any real user:**
+1. Choose a legitimate SMTP service with a verified sender/domain (e.g., Resend, Brevo, Postmark or another provider).
+2. Go to your Supabase project dashboard → **Authentication → SMTP Settings**.
+3. Enable **Custom SMTP**, then enter the provider's SMTP host, port, username, password, verified sender email, and sender name `MsgU`. Keep credentials **only in the Supabase dashboard**, never in the public Android app or GitHub.
+4. Save, confirm your sender's SPF/DKIM/DMARC when instructed by the provider, then test with a new email address and inspect Auth logs. Observe SMTP service restrictions and costs.
+5. Keep email confirmations enabled. Disabling the check would allow people to register with emails they do not own. Use CAPTCHA and appropriate rate limits before broader release.
 
-## Important limitations
-- GitHub CI compilation and unit/backend checks are not real two-device tests. Physical-device login, email delivery, phone OTP, actual message latency, and robustness remain unverified.
-- No WhatsApp-grade E2EE, push notifications, voice/video calls, or group chat on this Supabase path. The older Firebase-based feature code does not make those features work on this path.
-- The debug APK is signed by a temporary GitHub runner key. A differently signed update may not install over it; **back up local app data first**, do not uninstall without considering data loss.
-- Do not share passwords, phone verification codes or service_role/secret keys. Project URL and publishable key are public client identifiers but must be paired with working database RLS.
+### In the Android beta
+- Tap **Email → New user? Sign up** and enter your email, password and display name.
+- If Supabase returns an account without a session, MsgU now displays a confirmation-needed message instead of silently treating the account as signed in.
+- Open confirmation link from your email's Inbox or Spam, then return to the app and **Log in with Email**. The link opens in your browser; you should sign in manually afterward.
+- There is a **Resend confirmation email** button with a 60-second UI cooldown. Resend cannot override SMTP restrictions, sender verification, or the server's rate limits.
+- The app identifies `email_address_not_authorized`, `email_not_confirmed`, and `over_email_send_rate_limit` errors and gives useful instructions.
 
-Supabase project: `iatntpqytgzlfilveykd` (India / Mumbai region `ap-south-1`). The account owner must manage SMTP, SMS providers, consent and production policies through the Supabase dashboard.
+**Mobile OTP** requires an enabled SMS provider and possible paid messaging setup. It is not a substitute for unconfigured SMTP unless the SMS provider has also been set up.
+
+**App limitations:** Android Debug Beta; not end-to-end encrypted; no background notification or WhatsApp-like calls on Supabase path. APK compilation and unit tests do not prove actual email deliverability or two-device messaging works.
