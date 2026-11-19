@@ -1,0 +1,78 @@
+name: MsgU AI Studio v1.1 APK + GitHub Release
+
+on:
+  push:
+    branches: [msgu-ai-studio-v1-1]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout MsgU source package
+        uses: actions/checkout@v4
+      - name: Extract actual MsgU AI Studio Android source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-source
+          unzip -q release-inputs/MsgU-v1.1.0-source.zip -d ci-source
+          cp release-inputs/google-services.json ci-source/app/google-services.json
+          grep -q 'applicationId = "com.aistudio.msgu.kqxrmv"' ci-source/app/build.gradle.kts
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and build-tools
+        run: |
+          set -e
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'platforms;android-36' 'platforms;android-36.1' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Create CI debug signing key
+        shell: bash
+        run: |
+          keytool -genkeypair -keystore ci-source/debug.keystore -alias androiddebugkey \
+            -storepass android -keypass android -keyalg RSA -keysize 2048 \
+            -validity 3650 -dname 'CN=MsgU GitHub CI Debug,O=MsgU,C=IN' -noprompt
+      - name: Build Android APK and run unit tests
+        run: |
+          cd ci-source
+          gradle --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
+      - name: Prepare APK + SHA256 checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp ci-source/app/build/outputs/apk/debug/app-debug.apk release/MsgU-v1.1.0-beta-Debug.apk
+          cd release
+          sha256sum MsgU-v1.1.0-beta-Debug.apk > MsgU-v1.1.0-beta-Debug.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MsgU-v1.1.0-beta-APK
+          path: release/
+          if-no-files-found: error
+      - name: Publish GitHub prerelease ONLY after successful Android build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='msgu-ai-studio-v1.1.0-beta'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/*.apk release/*.sha256 --clobber
+          else
+            gh release create "$tag" release/*.apk release/*.sha256 \
+              --target "$GITHUB_SHA" \
+              --title 'MsgU v1.1 — AI Studio Android (Debug Beta)' \
+              --notes 'Compiled from the AI Studio MsgU Android source, package com.aistudio.msgu.kqxrmv. CI debug signed, NOT the original AI Studio release key. Google Sign-In may require registering this debug certificate SHA in Firebase. Two-device messaging has not been verified. For testing only.' \
+              --prerelease
+          fi
