@@ -27,7 +27,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      # Ubuntu GitHub-hosted runners already ship Android SDK command-line tools.
+      # setup-android@v3 currently tries to install the obsolete 'tools'
+      # package, which makes the job fail before Gradle starts.
+      - name: Verify available SDK manager
+        run: |
+          command -v sdkmanager
+          sdkmanager --version
       - name: Install Android SDK and build-tools
         run: |
           set -e
